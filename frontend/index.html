@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Traducción Lengua de Señas</title>
+    <style>
+        /* Estilos generales */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #0f172a;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            width: 80%;
+            max-width: 1200px;
+        }
+
+        /* Estilos para los paneles */
+        .panel {
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .video-panel {
+            backdrop-filter: blur(15px);
+        }
+        video {
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .chart-panel {
+            backdrop-filter: blur(15px);
+        }
+        canvas {
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .webcam-panel {
+            backdrop-filter: blur(15px);
+        }
+        video.webcam-video {
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .scatter-panel {
+            backdrop-filter: blur(15px);
+        }
+
+        /* Estilos para los controles */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #38bdf8;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        /* Estilos para el gráfico de líneas */
+        .line-chart-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+        }
+        .red-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            width: 2px;
+            background-color: red;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="grid-container">
+    <!-- Panel superior izquierdo: Reproductor de video -->
+    <div class="video-panel panel">
+        <video id="reference-video" controls autoplay loop>
+            <source src="/videos/referencia.mp4" type="video/mp4">
+            Tu navegador no soporta el elemento <code>video</code>.
+        </video>
+    </div>
+
+    <!-- Panel superior derecho: Gráfico de líneas -->
+    <div class="chart-panel panel">
+        <div class="line-chart-container">
+            <canvas id="line-chart"></canvas>
+            <div class="red-line" id="red-line"></div>
+        </div>
+    </div>
+
+    <!-- Panel inferior izquierdo: Cámara en vivo (placeholder) -->
+    <div class="webcam-panel panel controls">
+        <video id="webcam-video" class="webcam-video"></video>
+        <button onclick="startCamera()">Iniciar cámara</button>
+    </div>
+
+    <!-- Panel inferior derecho: Gráfico de dispersión -->
+    <div class="scatter-panel panel">
+        <canvas id="scatter-chart"></canvas>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.0.1/dist/socket.io.min.js"></script>
+<script>
+    // Variables para almacenar los datos del gráfico
+    let lineChartData = [];
+    let scatterChartData = [];
+
+    const socket = io('ws://localhost:8000');
+
+    // Configuración inicial de los gráficos
+    const ctxLine = document.getElementById('line-chart').getContext('2d');
+    const ctxScatter = document.getElementById('scatter-chart').getContext('2d');
+
+    const lineChart = new Chart(ctxLine, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Trayectoria X e Y (landmark 8)',
+                data: lineChartData,
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Tiempo (segundos)'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Posición'
+                    }
+                }
+            }
+        }
+    });
+
+    const scatterChart = new Chart(ctxScatter, {
+        type: 'scatter',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Coordenadas XY de landmarks',
+                data: scatterChartData,
+                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                borderColor: 'rgba(153, 102, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                x: {
+                    min: 0,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Coordenada X'
+                    }
+                },
+                y: {
+                    min: 0,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Coordenada Y (inversa)'
+                    },
+                    reverse: true
+                }
+            }
+        }
+    });
+
+    // Sincronizar el gráfico de líneas con el video
+    const referenceVideo = document.getElementById('reference-video');
+    referenceVideo.addEventListener('timeupdate', () => {
+        if (!lineChart.data.labels.includes(referenceVideo.currentTime)) {
+            lineChart.data.labels.push(referenceVideo.currentTime);
+            lineChartData.push({ x: referenceVideo.currentTime, y: 0 });
+            lineChart.update();
+        }
+    });
+
+    // Simulación de datos para el gráfico de líneas
+    function simulateLineChartData() {
+        setInterval(() => {
+            const timestamp = new Date().getTime();
+            const x = Math.random() * 100;
+            const y = Math.random() * 100;
+            lineChartData.push({ x: timestamp, y });
+            lineChart.update();
+        }, 100);
+    }
+
+    // Simulación de datos para el gráfico de dispersión
+    function simulateScatterChartData() {
+        setInterval(() => {
+            const x = Math.random() * 100;
+            const y = Math.random() * 100;
+            scatterChartData.push({ x, y });
+            scatterChart.update();
+        }, 100);
+    }
+
+    // Función para iniciar la cámara
+    async function startCamera() {
+        try {
+            const constraints = { video: true };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            const webcamVideo = document.getElementById('webcam-video');
+            webcamVideo.srcObject = stream;
+
+            setInterval(async () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                const context = canvas.getContext('2d');
+                context.drawImage(webcamVideo, 0, 0, 640, 480);
+
+                const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                socket.emit('frame', imgData);
+            }, 150);
+        } catch (error) {
+            console.error('Error al acceder a la cámara:', error);
+        }
+    }
+
+    // Recibir landmarks del WebSocket
+    socket.on('landmarks', (data) => {
+        scatterChartData = data;
+        scatterChart.update();
+    });
+
+    // Iniciar simulaciones
+    simulateLineChartData();
+    simulateScatterChartData();
+
+</script>
+
+</body>
+</html>
