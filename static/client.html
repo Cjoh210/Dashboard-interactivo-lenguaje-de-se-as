@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sign Language Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0c10;
+    --panel: #10131a;
+    --border: #1e2433;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --green: #00ff9d;
+    --red: #ff4560;
+    --text: #cdd6f4;
+    --muted: #6272a4;
+    --card: #13161f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  h1, h2, .mono { font-family: 'Space Mono', monospace; }
+
+  /* Scanline overlay sutil */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+  }
+
+  .header-bar {
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,12,16,0.95);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .dot-pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(0,255,157,0.4); }
+    50% { opacity:0.7; box-shadow: 0 0 0 6px rgba(0,255,157,0); }
+  }
+  .dot-off { background: var(--muted); animation: none; }
+
+  .section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255,255,255,0.02);
+  }
+
+  /* Video containers */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+  }
+  .video-wrap video,
+  .video-wrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .video-wrap canvas { z-index: 2; }
+
+  /* Botones */
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+  .btn-primary:hover { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .btn-ghost:hover { background: rgba(0,229,255,0.08); }
+
+  /* Stats badges */
+  .stat-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .stat-badge span { color: var(--accent); font-weight: 700; }
+
+  /* Score display */
+  .score-ring {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .score-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--green);
+    text-shadow: 0 0 20px rgba(0,255,157,0.5);
+    transition: color 0.3s;
+  }
+
+  /* Progress bar de carga */
+  .progress-wrap {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  /* Estado overlay */
+  .video-overlay {
+    position: absolute;
+    inset: 0; z-index: 3;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(10,12,16,0.85);
+    gap: 12px;
+    transition: opacity 0.3s;
+  }
+  .video-overlay.hidden { opacity: 0; pointer-events: none; }
+  .overlay-icon { font-size: 40px; }
+  .overlay-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    max-width: 200px;
+    line-height: 1.6;
+  }
+
+  /* Grid layout principal */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+  }
+
+  /* Hand tags */
+  .hand-tag {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .hand-left { background: rgba(0,229,255,0.15); color: var(--accent); border: 1px solid rgba(0,229,255,0.3); }
+  .hand-right { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.3); }
+
+  /* Spinner */
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Thumb scrubber */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(0,229,255,0.6);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<div class="header-bar px-6 py-3 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <path d="M18 11V8a2 2 0 0 0-4 0v3" stroke="#00e5ff"/>
+      <path d="M14 10V6a2 2 0 0 0-4 0v4" stroke="#00e5ff"/>
+      <path d="M10 9V5a2 2 0 0 0-4 0v9" stroke="#00e5ff"/>
+      <path d="M6 14v-1a4 4 0 0 1 4-4" stroke="#7c3aed"/>
+      <rect x="2" y="14" width="20" height="6" rx="2" stroke="#00e5ff"/>
+    </svg>
+    <h1 class="text-sm font-bold tracking-widest" style="color:var(--accent)">SIGN LANG <span style="color:var(--muted)">// DASHBOARD</span></h1>
+  </div>
+  <div class="flex items-center gap-5">
+    <div class="flex items-center gap-2">
+      <div id="dotRef" class="dot-pulse dot-off"></div>
+      <span class="section-label">referencia</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div id="dotLive" class="dot-pulse dot-off"></div>
+      <span class="section-label">cámara</span>
+    </div>
+    <div id="pingBadge" class="stat-badge">API <span id="pingStatus">—</span></div>
+  </div>
+</div>
+
+<!-- ── Body ────────────────────────────────────────────────────────────── -->
+<div class="p-4 md:p-6 space-y-4 max-w-screen-2xl mx-auto">
+
+  <!-- ── FILA 1: Referencia ─────────────────────────────────────────────── -->
+  <div>
+    <div class="section-label mb-3">▸ FILA 1 — VIDEO DE REFERENCIA</div>
+    <div class="main-grid">
+
+      <!-- Columna Izquierda: Video Referencia -->
+      <div class="card flex flex-col">
+        <div class="card-header justify-between">
+          <div class="flex items-center gap-3">
+            <div id="dotRef2" class="dot-pulse dot-off" style="width:6px;height:6px"></div>
+            <span class="section-label">video referencia</span>
+          </div>
+          <div class="flex items-center gap-2" id="refStats" style="display:none!important">
+            <div class="stat-badge">frames: <span id="refTotalFrames">0</span></div>
+            <div class="stat-badge">con mano: <span id="refHandFrames">0</span></div>
+          </div>
+        </div>
+
+        <div class="video-wrap flex-1">
+          <video id="refVideo" muted loop playsinline></video>
+          <canvas id="refCanvas"></canvas>
+          <div id="refOverlay" class="video-overlay">
+            <div class="overlay-icon">📁</div>
+            <div class="overlay-text">Sube un video .mp4 para analizar los landmarks de referencia</div>
+          </div>
+        </div>
+
+        <!-- Controles -->
+        <div class="p-3 space-y-2 border-t" style="border-color:var(--border)">
+          <div id="refProgress" class="progress-wrap" style="display:none">
+            <div id="refProgressBar" class="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <label class="btn btn-primary" style="cursor:pointer">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              CARGAR VIDEO
+              <input type="file" accept=".mp4,.avi,.mov,.mkv" id="refFileInput" class="hidden"/>
+            </label>
+            <button id="refPlayBtn" class="btn btn-ghost" disabled>▶ PLAY</button>
+            <button id="refPauseBtn" class="btn btn-ghost" disabled>⏸ PAUSE</button>
+            <div id="refStatusText" class="section-label ml-auto" id="refStatusText">Sin video</div>
+          </div>
+          <input type="range" id="refScrubber" min="0" max="100" value="0" disabled/>
+        </div>
+      </div>
+
+      <!-- Columna Derecha: Gráfica Referencia -->
+      <div class="card flex flex-col">
+        <div class="card-header justify-between">
+          <span class="section-label">gráfica de referencia — norma del vector 3D</span>
+          <div class="flex gap-2">
+            <div class="hand-tag hand-left">LEFT</div>
+            <div class="hand-tag hand-right">RIGHT</div>
+          </div>
+        </div>
+        <div class="flex-1 p-3" style="min-height:280px;position:relative">
+          <canvas id="refChart"></canvas>
+          <div id="refChartEmpty" class="flex flex-col items-center justify-center h-full" style="position:absolute;inset:0;color:var(--muted)">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><polyline points="3 17 9 11 13 15 22 6"/><polyline points="3 17 9 11 13 15 22 6"/></svg>
+            <p class="section-label mt-3">Procesa un video para ver la gráfica</p>
+          </div>
+        </div>
+        <div class="px-3 pb-3 flex gap-4">
+          <div class="stat-badge">norma media: <span id="refNormMean">—</span></div>
+          <div class="stat-badge">frames: <span id="refChartFrames">0</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── FILA 2: Cámara en Vivo ─────────────────────────────────────────── -->
+  <div>
+    <div class="section-label mb-3">▸ FILA 2 — CÁMARA EN VIVO</div>
+    <div class="main-grid">
+
+      <!-- Columna Izquierda: Webcam -->
+      <div class="card flex flex-col">
+        <div class="card-header justify-between">
+          <div class="flex items-center gap-3">
+            <div id="dotLive2" class="dot-pulse dot-off" style="width:6px;height:6px"></div>
+            <span class="section-label">webcam en vivo</span>
+          </div>
+          <div class="stat-badge">fps: <span id="liveFps">0</span></div>
+        </div>
+        <div class="video-wrap flex-1">
+          <video id="liveVideo" autoplay playsinline muted></video>
+          <canvas id="liveCanvas"></canvas>
+          <div id="liveOverlay" class="video-overlay">
+            <div class="overlay-icon">📷</div>
+            <div class="overlay-text">Activa la cámara para comenzar la detección en tiempo real</div>
+          </div>
+        </div>
+        <div class="p-3 flex gap-2 border-t" style="border-color:var(--border)">
+          <button id="startCamBtn" class="btn btn-primary">▶ INICIAR CÁMARA</button>
+          <button id="stopCamBtn" class="btn btn-danger" disabled>■ DETENER</button>
+          <div id="liveHandTags" class="flex gap-2 items-center ml-auto"></div>
+        </div>
+      </div>
+
+      <!-- Columna Derecha: Match Score + Gráfica en Vivo -->
+      <div class="card flex flex-col">
+        <div class="card-header justify-between">
+          <span class="section-label">match score — precisión en tiempo real</span>
+          <div class="stat-badge">ref activa: <span id="refActiveInfo">ninguna</span></div>
+        </div>
+
+        <!-- Score grande -->
+        <div class="flex items-center justify-around px-6 py-4 border-b" style="border-color:var(--border)">
+          <div class="text-center">
+            <div id="liveScore" class="score-text">—</div>
+            <div class="section-label mt-1">match score</div>
+          </div>
+          <div class="text-center">
+            <div id="liveScoreAvg" class="mono text-xl" style="color:var(--accent)">—</div>
+            <div class="section-label mt-1">promedio (30s)</div>
+          </div>
+          <div class="text-center">
+            <div id="liveScoreMax" class="mono text-xl" style="color:var(--green)">—</div>
+            <div class="section-label mt-1">máximo</div>
+          </div>
+        </div>
+
+        <!-- Gráfica -->
+        <div class="flex-1 p-3" style="min-height:200px;position:relative">
+          <canvas id="liveChart"></canvas>
+          <div id="liveChartEmpty" class="flex flex-col items-center justify-center h-full" style="position:absolute;inset:0;color:var(--muted)">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"><path d="M22 12h-4l-3 9L9 3l-3 9H3"/></svg>
+            <p class="section-label mt-3">Activa cámara y carga un video de referencia</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /body -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const API_BASE = 'http://localhost:8000';
+const WS_URL   = 'ws://localhost:8000/ws';
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ESTADO GLOBAL
+// ═══════════════════════════════════════════════════════════════════════════
+const state = {
+  // Referencia
+  refFrames: [],          // [{detected, hands:[{handedness, landmarks_2d, vector_3d}]}]
+  refFps: 30,
+  refAnimId: null,
+
+  // Live
+  ws: null,
+  liveStream: null,
+  liveAnimId: null,
+  liveWaiting: false,
+  liveFpsCounter: 0,
+  liveFpsTimer: null,
+
+  // Match
+  referenceVector: null,  // 60 floats del frame actual de referencia
+  scoreHistory: [],
+  scoreMax: 0,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LANDMARK DRAWING (idéntico para referencia y live)
+// ═══════════════════════════════════════════════════════════════════════════
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],[5,17],
+];
+
+const HAND_COLORS = {
+  Left:  { line: '#00e5ff', dot: '#00e5ff', glow: 'rgba(0,229,255,0.3)' },
+  Right: { line: '#a78bfa', dot: '#a78bfa', glow: 'rgba(167,139,250,0.3)' },
+};
+
+function drawHands(canvas, handsArr, videoEl) {
+  const ctx = canvas.getContext('2d');
+  // Ajustar tamaño del canvas al video
+  const w = videoEl ? videoEl.videoWidth  || videoEl.offsetWidth  : canvas.offsetWidth;
+  const h = videoEl ? videoEl.videoHeight || videoEl.offsetHeight : canvas.offsetHeight;
+  canvas.width  = w || 640;
+  canvas.height = h || 480;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (const hand of handsArr) {
+    const lms = hand.landmarks_2d;
+    if (!lms || lms.length < 21) continue;
+    const col = HAND_COLORS[hand.handedness] || HAND_COLORS.Left;
+    const pts = lms.map(lm => ({ x: lm.x * canvas.width, y: lm.y * canvas.height }));
+
+    // Sombra glow
+    ctx.shadowColor = col.glow;
+    ctx.shadowBlur  = 8;
+
+    // Líneas
+    ctx.strokeStyle = col.line;
+    ctx.lineWidth   = 2;
+    ctx.lineCap     = 'round';
+    for (const [a, b] of CONNECTIONS) {
+      ctx.beginPath();
+      ctx.moveTo(pts[a].x, pts[a].y);
+      ctx.lineTo(pts[b].x, pts[b].y);
+      ctx.stroke();
+    }
+
+    // Puntos
+    ctx.shadowBlur = 12;
+    for (let i = 0; i < pts.length; i++) {
+      ctx.beginPath();
+      ctx.arc(pts[i].x, pts[i].y, i === 0 ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? '#fff' : col.dot;
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Match score label sobre la muñeca
+    if (hand.match_score !== undefined) {
+      const pct  = Math.round(hand.match_score * 100);
+      const p    = pts[0];
+      ctx.font      = 'bold 13px "Space Mono", monospace';
+      ctx.fillStyle = pct >= 70 ? '#00ff9d' : pct >= 40 ? '#ffd700' : '#ff4560';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur  = 6;
+      ctx.fillText(`${pct}%`, p.x + 6, p.y - 8);
+      ctx.shadowBlur  = 0;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  CHARTS
+// ═══════════════════════════════════════════════════════════════════════════
+function makeRefChart() {
+  const ctx = document.getElementById('refChart').getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Left — norma vector',
+          data: [], borderColor: '#00e5ff',
+          backgroundColor: 'rgba(0,229,255,0.05)',
+          borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true,
+        },
+        {
+          label: 'Right — norma vector',
+          data: [], borderColor: '#a78bfa',
+          backgroundColor: 'rgba(167,139,250,0.05)',
+          borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { labels: { color: '#6272a4', font: { family: 'Space Mono', size: 10 } } } },
+      scales: {
+        x: { display: true, ticks: { color: '#6272a4', font: { size: 9 }, maxTicksLimit: 10 }, grid: { color: '#1e2433' } },
+        y: { display: true, min: 0, ticks: { color: '#6272a4', font: { size: 9 } }, grid: { color: '#1e2433' } },
+      },
+    },
+  });
+}
+
+function makeLiveChart() {
+  const ctx = document.getElementById('liveChart').getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Match Score %',
+        data: [],
+        borderColor: '#00ff9d',
+        backgroundColor: 'rgba(0,255,157,0.08)',
+        borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          min: 0, max: 100,
+          ticks: { color: '#6272a4', font: { size: 9 }, callback: v => v + '%' },
+          grid: { color: '#1e2433' },
+        },
+      },
+    },
+  });
+}
+
+const refChartInst = makeRefChart();
+const liveChartInst = makeLiveChart();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PING
+// ═══════════════════════════════════════════════════════════════════════════
+async function checkPing() {
+  try {
+    const r = await fetch(`${API_BASE}/ping`);
+    const d = await r.json();
+    document.getElementById('pingStatus').textContent = d.status === 'ok' ? '✓ online' : '✗ error';
+    document.getElementById('pingStatus').style.color = '#00ff9d';
+  } catch {
+    document.getElementById('pingStatus').textContent = '✗ offline';
+    document.getElementById('pingStatus').style.color = '#ff4560';
+  }
+}
+checkPing();
+setInterval(checkPing, 10000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  REFERENCIA — Carga y procesamiento del video
+// ═══════════════════════════════════════════════════════════════════════════
+const refVideo    = document.getElementById('refVideo');
+const refCanvas   = document.getElementById('refCanvas');
+const refOverlay  = document.getElementById('refOverlay');
+const refFileInput= document.getElementById('refFileInput');
+const refPlayBtn  = document.getElementById('refPlayBtn');
+const refPauseBtn = document.getElementById('refPauseBtn');
+const refScrubber = document.getElementById('refScrubber');
+const refStatus   = document.getElementById('refStatusText');
+
+refFileInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Mostrar video localmente
+  refVideo.src = URL.createObjectURL(file);
+  refVideo.onloadedmetadata = () => {
+    state.refFps = 30; // default
+    refScrubber.max = Math.floor(refVideo.duration * state.refFps);
+  };
+
+  // Iniciar procesamiento en backend
+  refOverlay.innerHTML = `
+    <div class="spinner"></div>
+    <div class="overlay-text">Extrayendo landmarks...<br>Esto puede tomar unos momentos</div>
+  `;
+  refOverlay.classList.remove('hidden');
+  document.getElementById('refProgress').style.display = 'block';
+  document.getElementById('refProgressBar').style.width = '10%';
+  refStatus.textContent = 'Procesando...';
+  setDot('dotRef', false); setDot('dotRef2', false);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    // Animación de progreso indeterminada
+    let fakeP = 10;
+    const fakeInterval = setInterval(() => {
+      fakeP = Math.min(fakeP + Math.random() * 8, 85);
+      document.getElementById('refProgressBar').style.width = fakeP + '%';
+    }, 400);
+
+    const resp = await fetch(`${API_BASE}/reference-landmarks`, { method: 'POST', body: formData });
+    clearInterval(fakeInterval);
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Error en el servidor');
+    }
+
+    const data = await resp.json();
+    state.refFrames = data.frames;
+    state.refFps = Math.round(data.total_frames / (refVideo.duration || 1)) || 30;
+
+    document.getElementById('refProgressBar').style.width = '100%';
+    document.getElementById('refTotalFrames').textContent = data.total_frames;
+    document.getElementById('refHandFrames').textContent  = data.frames_with_hand;
+    document.getElementById('refStats').style.display     = 'flex';
+    document.getElementById('refChartFrames').textContent = data.total_frames;
+
+    // Poblar gráfica de referencia
+    populateRefChart(data.frames);
+
+    // Habilitar controles
+    refPlayBtn.disabled  = false;
+    refPauseBtn.disabled = false;
+    refScrubber.disabled = false;
+    refScrubber.max      = data.total_frames - 1;
+
+    refOverlay.classList.add('hidden');
+    refStatus.textContent = 'Listo';
+    setDot('dotRef', true); setDot('dotRef2', true);
+    document.getElementById('refActiveInfo').textContent = file.name.slice(0,20);
+
+  } catch (err) {
+    document.getElementById('refProgressBar').style.width = '100%';
+    document.getElementById('refProgressBar').style.background = '#ff4560';
+    refOverlay.innerHTML = `<div style="font-size:32px">⚠️</div><div class="overlay-text" style="color:#ff4560">${err.message}</div>`;
+    refStatus.textContent = 'Error';
+  }
+
+  setTimeout(() => { document.getElementById('refProgress').style.display = 'none'; }, 1000);
+});
+
+function populateRefChart(frames) {
+  const leftNorms  = [];
+  const rightNorms = [];
+  const labels     = [];
+
+  frames.forEach((f, i) => {
+    labels.push(i);
+    let ln = null, rn = null;
+    if (f.detected) {
+      for (const h of f.hands) {
+        const norm = Math.sqrt(h.vector_3d.reduce((s,v) => s + v*v, 0));
+        if (h.handedness === 'Left')  ln = parseFloat(norm.toFixed(3));
+        if (h.handedness === 'Right') rn = parseFloat(norm.toFixed(3));
+      }
+    }
+    leftNorms.push(ln);
+    rightNorms.push(rn);
+  });
+
+  refChartInst.data.labels          = labels;
+  refChartInst.data.datasets[0].data = leftNorms;
+  refChartInst.data.datasets[1].data = rightNorms;
+  refChartInst.update();
+  document.getElementById('refChartEmpty').style.display = 'none';
+
+  const validNorms = [...leftNorms, ...rightNorms].filter(v => v !== null);
+  if (validNorms.length) {
+    const mean = validNorms.reduce((a,b) => a+b, 0) / validNorms.length;
+    document.getElementById('refNormMean').textContent = mean.toFixed(3);
+  }
+}
+
+// ── Sincronización video ↔ canvas de referencia ───────────────────────────
+function syncRefCanvas() {
+  if (!state.refFrames.length) return;
+  const fps   = state.refFps || 30;
+  const frameIdx = Math.min(
+    Math.floor(refVideo.currentTime * fps),
+    state.refFrames.length - 1
+  );
+  refScrubber.value = frameIdx;
+
+  const frame = state.refFrames[frameIdx];
+  if (frame && frame.detected) {
+    drawHands(refCanvas, frame.hands, refVideo);
+    // Actualizar reference vector con la primera mano del frame actual
+    if (frame.hands[0]) state.referenceVector = frame.hands[0].vector_3d;
+  } else {
+    const ctx = refCanvas.getContext('2d');
+    ctx.clearRect(0, 0, refCanvas.width, refCanvas.height);
+  }
+
+  state.refAnimId = requestAnimationFrame(syncRefCanvas);
+}
+
+refPlayBtn.addEventListener('click', () => {
+  refVideo.play();
+  if (state.refAnimId) cancelAnimationFrame(state.refAnimId);
+  syncRefCanvas();
+});
+refPauseBtn.addEventListener('click', () => {
+  refVideo.pause();
+  if (state.refAnimId) cancelAnimationFrame(state.refAnimId);
+});
+refScrubber.addEventListener('input', () => {
+  const fps = state.refFps || 30;
+  refVideo.currentTime = refScrubber.value / fps;
+});
+refVideo.addEventListener('ended', () => {
+  if (state.refAnimId) cancelAnimationFrame(state.refAnimId);
+  refVideo.currentTime = 0;
+  refVideo.play();
+  syncRefCanvas();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LIVE — Cámara + WebSocket
+// ═══════════════════════════════════════════════════════════════════════════
+const liveVideo   = document.getElementById('liveVideo');
+const liveCanvas  = document.getElementById('liveCanvas');
+const liveOverlay = document.getElementById('liveOverlay');
+const startCamBtn = document.getElementById('startCamBtn');
+const stopCamBtn  = document.getElementById('stopCamBtn');
+
+startCamBtn.addEventListener('click', startLive);
+stopCamBtn.addEventListener('click',  stopLive);
+
+async function startLive() {
+  try {
+    state.liveStream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } });
+    liveVideo.srcObject = state.liveStream;
+    await new Promise(r => liveVideo.onloadedmetadata = r);
+
+    // WebSocket
+    state.ws = new WebSocket(WS_URL);
+    state.ws.onopen = () => {
+      liveOverlay.classList.add('hidden');
+      setDot('dotLive', true); setDot('dotLive2', true);
+      startCamBtn.disabled = true;
+      stopCamBtn.disabled  = false;
+
+      // FPS counter
+      state.liveFpsCounter = 0;
+      state.liveFpsTimer = setInterval(() => {
+        document.getElementById('liveFps').textContent = state.liveFpsCounter;
+        state.liveFpsCounter = 0;
+      }, 1000);
+
+      // Mostrar vacío de chart
+      document.getElementById('liveChartEmpty').style.display = 'none';
+
+      requestAnimationFrame(liveLoop);
+    };
+    state.ws.onmessage  = (e) => handleLiveResponse(JSON.parse(e.data));
+    state.ws.onerror    = () => stopLive();
+    state.ws.onclose    = () => stopLive();
+  } catch (err) {
+    alert('No se pudo acceder a la cámara: ' + err.message);
+  }
+}
+
+function stopLive() {
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  if (state.liveStream) { state.liveStream.getTracks().forEach(t => t.stop()); state.liveStream = null; }
+  if (state.liveAnimId) { cancelAnimationFrame(state.liveAnimId); state.liveAnimId = null; }
+  if (state.liveFpsTimer) { clearInterval(state.liveFpsTimer); state.liveFpsTimer = null; }
+  liveOverlay.classList.remove('hidden');
+  liveOverlay.innerHTML = `<div class="overlay-icon">📷</div><div class="overlay-text">Cámara detenida</div>`;
+  setDot('dotLive', false); setDot('dotLive2', false);
+  startCamBtn.disabled = false;
+  stopCamBtn.disabled  = true;
+  state.liveWaiting    = false;
+}
+
+// Captura frames y los envía al WebSocket
+const _liveCapCanvas = document.createElement('canvas');
+
+function liveLoop() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  state.liveAnimId = requestAnimationFrame(liveLoop);
+
+  if (state.liveWaiting) return; // Backpressure: espera respuesta antes de enviar
+
+  _liveCapCanvas.width  = liveVideo.videoWidth  || 640;
+  _liveCapCanvas.height = liveVideo.videoHeight || 480;
+  const ctx = _liveCapCanvas.getContext('2d');
+  ctx.drawImage(liveVideo, 0, 0);
+
+  _liveCapCanvas.toBlob(blob => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+      state.ws.send(JSON.stringify({
+        frame: reader.result,
+        reference_vector: state.referenceVector || null,
+      }));
+      state.liveWaiting = true;
+    };
+    reader.readAsDataURL(blob);
+  }, 'image/jpeg', 0.7);
+}
+
+function handleLiveResponse(data) {
+  state.liveWaiting = false;
+  state.liveFpsCounter++;
+
+  if (data.error) { console.warn('WS error:', data.error); return; }
+
+  // Dibujar landmarks sobre el canvas de webcam
+  if (data.detected && data.hands.length) {
+    drawHands(liveCanvas, data.hands, liveVideo);
+  } else {
+    const ctx = liveCanvas.getContext('2d');
+    liveCanvas.width  = liveVideo.videoWidth  || 640;
+    liveCanvas.height = liveVideo.videoHeight || 480;
+    ctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+  }
+
+  // Tags de manos detectadas
+  const tagsEl = document.getElementById('liveHandTags');
+  tagsEl.innerHTML = data.hands.map(h =>
+    `<span class="hand-tag hand-${h.handedness.toLowerCase()}">${h.handedness.toUpperCase()}</span>`
+  ).join('');
+
+  // Match score
+  const scores = data.hands
+    .filter(h => h.match_score !== undefined)
+    .map(h => h.match_score);
+
+  if (scores.length && state.referenceVector) {
+    const score = scores[0];
+    const pct   = Math.round(score * 100);
+    const scoreEl = document.getElementById('liveScore');
+    scoreEl.textContent = pct + '%';
+    scoreEl.style.color = pct >= 70 ? '#00ff9d' : pct >= 40 ? '#ffd700' : '#ff4560';
+    scoreEl.style.textShadow = `0 0 20px ${pct >= 70 ? 'rgba(0,255,157,0.5)' : 'rgba(255,69,96,0.4)'}`;
+
+    state.scoreHistory.push(pct);
+    if (state.scoreHistory.length > 200) state.scoreHistory.shift();
+    if (pct > state.scoreMax) {
+      state.scoreMax = pct;
+      document.getElementById('liveScoreMax').textContent = pct + '%';
+    }
+
+    const avg = Math.round(state.scoreHistory.reduce((a,b) => a+b, 0) / state.scoreHistory.length);
+    document.getElementById('liveScoreAvg').textContent = avg + '%';
+
+    // Actualizar gráfica
+    liveChartInst.data.labels.push('');
+    liveChartInst.data.datasets[0].data.push(pct);
+    if (liveChartInst.data.labels.length > 100) {
+      liveChartInst.data.labels.shift();
+      liveChartInst.data.datasets[0].data.shift();
+    }
+    liveChartInst.update('none');
+  } else if (!state.referenceVector) {
+    document.getElementById('liveScore').textContent = '—';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  UTILIDADES
+// ═══════════════════════════════════════════════════════════════════════════
+function setDot(id, on) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('dot-off', !on);
+  // Si hay un id2 (versión en header/card)
+  const el2 = document.getElementById(id + '2');
+  if (el2) el2.classList.toggle('dot-off', !on);
+}
+// Sincronizar los dos dots de referencia y live
+function setDot(id, on) {
+  [id, id + '2'].forEach(sid => {
+    const el = document.getElementById(sid);
+    if (el) el.classList.toggle('dot-off', !on);
+  });
+}
+</script>
+</body>
+</html>
